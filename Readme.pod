@@ -1,0 +1,218 @@
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+fomatest - A tool for testing foma lexica
+
+=head1 SYNOPSIS
+
+  # Command line
+  $ perl fomatest lexicon.fst lexicon.test
+
+  # lexicon.test
+  schafe;    # This is part of the lexicon
+  *schäfe;   # This is not part of the lexicon
+
+  >> Test "bäume"
+
+  bäume ->   'baum+Noun+Mas+Pl+Nom',
+             "baum+Noun+Mas+Pl+Acc";
+
+=head1 DESCRIPTION
+
+This script allows for writing test suites to check against
+lexica compiled with foma.
+
+
+=head1 NOTATION
+
+=head2 Word
+
+Words to request as well as words as part of word sets can
+be written with or without quotes.
+Thus, the first three forms are equal.
+
+  schafe;
+  'schafe';
+  "schafe";
+  bäume -> 'baum+Noun+Mas+Pl+Nom', "baum+Noun+Mas+Pl+Acc";
+
+
+=head2 Word set
+
+Word sets are list of words separated by comma.
+They can be written in one line or in multiple lines.
+
+  bäume -> 'baum+Noun+Mas+Pl+Nom', "baum+Noun+Mas+Pl+Acc";
+
+  bäume -> 'baum+Noun+Mas+Pl+Nom',
+           "baum+Noun+Mas+Pl+Acc";
+
+
+=head2 RegExp
+
+Regular Expressions as part of Regular Expression lists can be
+full PCREs.
+
+  bäume ~> '^baum\+Noun.+?';
+
+
+=head2 RegExp list
+
+Regular Expression lists are lists of Regular Expressions
+separated by comma.
+They can be written in one line or in multiple lines.
+
+  bäume ~> '^baum\+Noun.+?',
+           '^baum\+Noun\+Mas';
+
+
+=head2 Direction
+
+Most of all functions allow for the explicit direction of lexicon requests.
+The default direction is lower to upper and indicated by a 'greater than' symbol.
+The opposite is indicated by a 'littler than' symbol.
+
+  > 'baum';
+  < 'baum+Noun+Mas+Pl+Nom';
+  baum -> 'baum+Noun+Mas+Pl+Nom';
+  'baum+Noun+Mas+Pl+Nom' -< 'baum';
+
+
+=head2 Negation
+
+Most of all functions allow for the negation of the expression, indicated
+by a preceding 'star' symbol.
+
+  > 'baum';  # Is in lexicon
+  *> 'bäum'; # Is not in lexicon
+  bäume ->  'baum+Noun+Mas+Pl+Nom',
+            "baum+Noun+Mas+Pl+Acc"; # Is a subset of the result set
+  bäume *-> 'bäume'; # Has an empty intersection with the result set
+
+
+=head2 Comments
+
+Most of all functions allow for comments at the end of a line.
+
+  > 'baum';  # Simple comments
+  # Exclusive comment line
+  bäume ->  'baum+Noun+Mas+Pl+Nom', # Comments in multi lines
+            "baum+Noun+Mas+Pl+Acc"; # are allowed as well
+
+In addition to that, empty lines can be used to structure the test suite.
+
+Comments to be displayed by the test suite for diagnosis
+have to be in separated lines beginning with '>>'.
+
+  >> Let's start the test suite.
+
+
+=head1 FUNCTIONS
+
+=head2 > WORD
+
+Check, if the word is an element of the lexicon.
+The direction is optional.
+If not given, the default direction is used.
+These expressions are equivalent:
+
+  baum;
+  > baum;
+
+
+=head2 *> WORD
+
+Check, if the word is not an element of the lexicon.
+The direction is optional.
+If not given, the default direction is used.
+These expressions are equivalent:
+
+  *baum;
+  *> baum;
+
+
+=head2 WORD -> WORD SET
+
+Check, if the word set is a subset of the result set.
+
+  bäume -> baum+Noun+Mas+Pl+Nom,
+           baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD *-> WORD SET
+
+Check, if the intersection of the word set and the result set
+is the empty set.
+
+  bäume *-> bäum+Noun+Mas+Pl+Nom,
+            bäum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD => WORD SET
+
+Check, if the word set and the result set are identical, i.e.,
+if the difference of both is the empty set.
+
+  bäume => 'baum+Noun+Mas+Pl+Nom',
+           "baum+Noun+Mas+Pl+Gen",
+           baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD *=> WORD SET
+
+Check, if the word set and the result set are not identical, i.e.,
+if the difference of both is not the empty set.
+
+  bäume *=> 'baum+Noun+Mas+Pl+Nom',
+            baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD ~> REGEXP LIST
+
+Check, if all elements of the result set match given regular expressions,
+i.e., if the result set is a subset of the word sets represented by a list
+of regular expressions.
+
+  bäume ~> 'baum\+Noun.+?',
+           'baum\+Noun\+Mas';
+
+B<Note>: The result set must be a subset of each word set, not the union of
+all word sets represented by the list of regular expressions.
+
+
+=head2 WORD *~> REGEXP LIST
+
+Check, if all elements of the result set do not match given regular expressions,
+i.e., if the intersection of the result set and the word sets
+represented by a list of regular expressions is the empty set.
+
+  bäume *~> '^baum\+Verb.+?',
+            'baum\+Noun\+Fem';
+
+B<Note>: The intersection of the result set and word set of each re has to be empty,
+not the union of all word sets represented by the list of regular expressions.
+
+
+=head1 DEPENDENCIES
+
+Perl (at least version 5.10.1).
+
+
+=head1 KNOWN BUGS
+
+There is currently no reference weakening anywhere,
+although we work heavily with cyclic references.
+This can lead to various errors and memory loss.
+
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2011, Nils Diewald.
+
+This program is intended to become free software.
+For the moment it is not prepared for distribution.
+
+=cut
