@@ -1,0 +1,1105 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use utf8;
+use feature ':5.10';
+$|++;
+our @ARGV;
+
+our $VERSION = '0.3';
+
+our $usage = "Usage perl $0 <lexicon.fst> <lexicon.test>";
+
+# Regex fun
+our $WORD_RE     = qr/(?:(?<quote>["'])(?<word>[^\\g{quote}]*?)\g{quote}|
+                         (?<word>[^#,;\s]*?))/x;
+our $COMMENT_RE  = qr/(?:\s*(?:#.+?|$))/;
+our $MOD_RE      = qr/(?<mod>\*?[-\=\~])/;
+our $DIR_RE      = qr/(?<dir>[\>\<])/;
+our $LINE_RE     = qr/^\s*
+  (?<relevant>
+    (?:\*?$DIR_RE?\s*$WORD_RE)|
+    (?:$WORD_RE(?:\s+$MOD_RE$DIR_RE(?:\s*$WORD_RE\s*,?)*)?)|
+    (?:$MOD_RE$DIR_RE(?:\s*$WORD_RE\s*,?)*)|
+    (?:$WORD_RE\s*,?)*
+  )\s*(?<end>;)?$COMMENT_RE/xo;
+
+
+# Open lexicon test
+if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
+
+  my $flookup = Foma->new($ARGV[0]);
+
+  exit(0) unless $flookup;
+
+  # Tests passed
+  my ($passed, $failed, $all) = (0, 0, 0);
+
+  # Iterate through file
+  my $line_nr = 0;
+  while (!eof(LIST)) {
+    $all = $failed + $passed;
+
+    # Read line
+    my $line = readline(LIST);
+    chomp($line);
+    $line_nr++;
+
+    # Truncate whitespace
+    for ($line) {
+      chomp($_);
+      s/\s+$//;
+      s/^\s+//;
+    };
+
+    # Comment or empty line
+    # # This is a comment line
+    next if !$line || index($line,'#') == 0;
+
+    if (index($line,'>>') == 0) {
+      my $print = substr($line,2);
+      for ($print) {
+	s/^\s*//;
+	s/\s*$//;
+	$_ = unquote($_);
+      };
+      say "$print ($all tests done)";
+      next;
+    };
+
+    my $act_line = $line;
+    $line = '';
+
+    # Check for multilines
+    while ($act_line =~ /$LINE_RE/o) {
+
+      $line .= $+{relevant};
+
+      # Is final line
+      if (exists $+{end}) {
+	last;
+      }
+
+      # Continues
+      elsif (!eof(LIST)) {
+
+	# Read line
+	$act_line = readline(LIST);
+	chomp($act_line);
+	$line_nr++;
+      }
+
+      # Reached end of file
+      else {
+	warn "Error ($line_nr): line '$act_line' unparseable";
+	$failed++;
+	last;
+      };
+    };
+
+    # Delete multiple Whitespaces
+    # This may be too aggressive, if they are part of the word.
+    $line =~ s/[\n\s]+/ /mg;
+
+    # Word should (not) be in the transducer
+    # * "schäfe"
+    # *schäfe
+    # >*schäfe
+    # "schafe"
+    # <* "schafe"
+    # schafe
+    if ($line =~ /^(\*)?($DIR_RE\s*)?\s*$WORD_RE\s*$/o) {
+      my $neg  = $1 ? 1 : 0;
+      my $dir  = (exists $+{dir} && $+{dir} eq '<') ? 1 : 0;
+      my $word = unquote($+{word});
+
+      unless ($word) {
+	warn "Error ($line_nr): line '$line' unparseable";
+	$failed++;
+	next;
+      };
+
+      # Check transducer for word
+      my $foma_output = $dir ?
+	                $flookup->apply_down($word) :
+			$flookup->apply_up($word);
+
+      if (($neg  && (@$foma_output == 1 && $foma_output->[0] eq '+?')) ||
+          (!$neg && (@$foma_output >= 1  && $foma_output->[0] ne '+?'))
+	) {
+	# Test passed
+	$passed++;
+	next;
+      };
+
+      # Test failed
+      warn "Error ($line_nr): '$word'",
+	   ($neg ? '' : ' not'),
+	   ' found in lexicon';
+      $failed++;
+    }
+
+    # baum -> baum+Noun+SN1+Mases+Sg+Gen
+    # 'baum' -> "baum+Noun+SN1+Mases+Sg+Gen", baum+Noun+SN1+Mas+Sg+Nom
+    # 'baum' => "baum+Noun+SN1+Mases+Sg+Gen", baum+Noun+SN1+Mas+Sg+Nom, ...
+    # 'baum' *-> "baum+Noun+SN2+Mases+Sg+Gen"
+    # 'baum' ~> "baum.+?"
+    # baum -< baum+Noun+SN1+Mases+Sg+Gen
+    # 'baum' -< "baum+Noun+SN1+Mases+Sg+Gen", baum+Noun+SN1+Mas+Sg+Nom
+    # 'baum' =< "baum+Noun+SN1+Mases+Sg+Gen", baum+Noun+SN1+Mas+Sg+Nom, ...
+    # 'baum' *< "baum+Noun+SN2+Mases+Sg+Gen"
+    elsif ($line =~ /^$WORD_RE\s*
+		     $MOD_RE
+                     $DIR_RE\s*
+		     (?<wordlist>.+?)\s*$/ox) {
+      my $mod       = $+{mod};
+      my $dir       = $+{dir} eq '>' ? 0 : 1;
+      my $word_list = $+{wordlist};
+      my $word      = unquote( $+{word} );
+
+      my @word_list;
+      pos($word_list) = 0;
+      while ($word_list =~ /\G\s*$WORD_RE\s*(?:,|$)/og) {
+	push(@word_list, unquote($+{word})) if $+{word};
+      };
+
+      # Check transducer for word
+      my $foma_output = $dir ?
+	                $flookup->apply_down($word) :
+			$flookup->apply_up($word);
+
+      # Is the test set a subset of the result set?
+      #   or
+      # Is the intersection of the test set and the result set empty?
+      if ($mod ~~ ['-','*-']) {
+	my $neg = $mod eq '*-' ? 1 : 0;
+	my $not_found = 0;
+	foreach (@word_list) {
+	  if (($neg && $_ ~~ $foma_output) ||
+ 	      (!$neg  && !($_ ~~ $foma_output))) {
+	    warn "Error ($line_nr): ",
+	         "$_ is",
+		 ($neg ? '' : ' not'),
+		 " part of the result set of '$word'";
+	    $not_found++;
+	    $failed++;
+	    last;
+	  };
+	};
+      }
+
+      # Is the test set identical to the result set?
+      elsif ($mod ~~ ['=', '*=']) {
+	my $neg = $mod eq '*=' ? 1 : 0;
+
+	my $word_list = [sort { $a cmp $b } @word_list ];
+	if ((!$neg && !($word_list ~~ $foma_output)) ||
+	    ($neg && $word_list ~~ $foma_output)) {
+	  warn "Error ($line_nr): ",
+	       "test set is",
+               ($neg ? '' : ' not'),
+               " identical to result set of '$word'";
+	  warn "     Have: ",join(',',@$word_list);
+	  warn " Expected: ",join(',',@$foma_output);
+	  $failed++;
+	  next;
+	};
+      }
+
+      # Is the result set a subset of the test set represented as an re?
+      #   or
+      # Is the intersection of the result set and the test set
+      # represented as an re the empty set?
+      elsif ($mod ~~ ['~','*~']) {
+	my $not_found = 0;
+	my $neg = $mod eq '*~' ? 1 : 0;
+
+	foreach my $output (@$foma_output) {
+	  foreach (@word_list) {
+	    my $word_list_re = qr/$_/;
+
+	    if ((!$neg && $output !~ $word_list_re) ||
+		($neg  && $output =~ $word_list_re)) {
+	      warn "Error ($line_nr): ",
+		   "$_ does",
+		   ($neg ? '' : ' not'),
+                   " match for '$word'";
+	           $not_found++;
+	           $failed++;
+	      last;
+	    };
+	  };
+	  last if $not_found;
+	};
+	last if $not_found;
+      };
+
+      # Test passed
+      $passed++;
+    }
+
+    # Unable to parse
+    else {
+      warn "Error ($line_nr): line '$line' unparseable";
+      $failed++;
+    };
+  };
+
+  close(LIST);
+
+  say '--------------------';
+
+  # Has to be repeated
+  $all = $failed + $passed;
+  if ($failed) {
+    say "Failed $failed/$all tests.";
+  } else {
+    say "All $all tests successfully passed.";
+  };
+
+  exit(0);
+}
+
+# No file found
+else {
+  say $usage;
+};
+
+
+# Delete quotation marks
+sub unquote {
+  my $word = shift;
+  $word =~ s/^(["'])([^\1]+?)\1$/$2/;
+  return $word;
+};
+
+package Foma;
+# Parse foma files
+use strict;
+use warnings;
+use utf8;
+use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
+
+
+# Constructor
+sub new {
+  my $class = shift;
+
+  my $self = bless {
+    lexicon => shift, # lexicon file
+    mcs     => {}     # multi character symbols
+  }, $class;
+
+  # Open lexicon file
+  my $gz = IO::Uncompress::Gunzip->new($self->{lexicon})
+    or die "Gunzip failed: $GunzipError\n";
+
+  print 'Load Transducer ... ';
+
+  my $line = $gz->getline;
+  chomp($line);
+  return if $line ne '##foma-net 1.0##';
+
+  # Ignore '##props##' and props
+  for (0..2) {
+    $line = $gz->getline;
+  };
+  chomp($line);
+
+  return if $line ne '##sigma##';
+
+  # New transducer object
+  my $fst = FST->new;
+
+  $line = $gz->getline;
+  chomp($line);
+
+  # parse sigma
+  my @sigma;
+  while ($line ne '##states##') {
+    my ($num, $label) = split(/\s/,$line);
+
+    # Change special symbols
+#    $label =  0  if $label eq '@_EPSILON_SYMBOL_@';
+#    $label = '?' if $label eq '@_UNKNOWN_SYMBOL_@';
+
+    # Add sigma to map
+    $sigma[$num] = $label;
+
+    # Add sigma to fst
+    $fst->sigma($label);
+
+    # Save as multicharacter symbol
+    if (length($label) > 1) {
+      $self->{mcs}->{$label} = 1;
+    };
+
+    # Read next line
+    $line = $gz->getline;
+    chomp($line);
+  };
+
+  $line = $gz->getline;
+  chomp($line);
+
+  my ($s1, $s2);
+
+  # Iterate through edges
+  while ($line ne '##end##') {
+    my @values = split(/\s+/, $line);
+    my ($l1, $l2) = (-1, -1);
+    my $terminal = 0;
+
+    # Treat line values
+    if (@values == 5) {
+      ($s1, $l1, $l2, $s2, $terminal) = @values;
+    } elsif (@values == 4) {
+      ($s1, $l1, $s2, $terminal) = @values;
+    } elsif (@values == 3) {
+      ($l1, $l2, $s2) = @values;
+    } elsif (@values == 2) {
+      ($l1, $s2) = @values;
+    } else {
+      die "unable to parse $line in ". $self->{fst};
+    };
+
+    # Add edges to fst
+    if ($l1 >= 0) {
+      if ($l2 >= 0) {
+	$fst->edge($s1 => $s2, $sigma[$l1] => $sigma[$l2]);
+      } else {
+	$fst->edge($s1 => $s2, $sigma[$l1]);
+      };
+    };
+
+    # Declare state as terminal
+    if ($terminal == 1) {
+      $fst->end($s1);
+    };
+
+    $line = $gz->getline;
+    chomp($line);
+  };
+
+  # Transducer succesfully loaded
+  print 'ready';
+
+  if ($gz->getline) {
+    print ' (took the first one)';
+  };
+
+  say '.';
+
+  $self->{fst} = $fst;
+  return $self;
+};
+
+
+# Apply up
+sub apply_up {
+  return shift->_apply(2 => @_);
+};
+
+
+# Apply down
+sub apply_down {
+  return shift->_apply(1 => @_);
+};
+
+
+# Apply
+sub _apply {
+  my ($self, $dir, $word) = @_;
+
+  # Split word in array
+  my $split_array = $self->_split_token($word);
+
+  # Get interpretations
+  my $interpretations =
+    $self->{fst}->parse($dir => $split_array);
+
+  # Create output array
+  my @output;
+  foreach (@$interpretations) {
+    push(@output, join('', @$_));
+  };
+
+  # Nothing found
+  return ['+?'] unless @output;
+
+  # Return alphabetically sorted
+  return [ sort { $a cmp $b } @output ];
+};
+
+
+# Split token with multi character symbols
+sub _split_token {
+  my ($self, $word) = @_;
+
+  my @found;
+
+  # Create token regex
+  my $TOKEN =
+    join('|', map(quotemeta($_),
+		  sort { length($b) <=> length($a) }
+		    keys %{$self->{mcs}}));
+
+  # parse token as long as there are characters
+  while (1) {
+
+    # Prefer multicharacter symbols
+    if ($word =~ m/\G($TOKEN)/gcs) {
+      push(@found,$1);
+      redo;
+    }
+
+    # Parse single character symbols
+    elsif ($word =~ m/\G(.+?)(?=$TOKEN|$)/gcs) {
+      push(@found, split('', $1));
+      redo;
+    };
+
+    last;
+  };
+
+  # Return splitted array
+  return \@found;
+};
+
+
+package FST;
+# Build finite state transducer
+use strict;
+use warnings;
+no warnings 'recursion';
+use constant {
+  NORMAL => 0,
+  DOWN   => 1,
+  UP     => 2,
+  START  => 0,
+  TARGET => 1,
+  LABEL1 => 2,
+  LABEL2 => 3
+};
+
+
+# Constructor
+sub new {
+  my $class = shift;
+  my %self = @_;
+
+  # Activate trace
+  $self{trace}      //= 0;
+
+  # Max value for input and output pointer
+  $self{pointermax} //= 1000;
+
+  # Max value for stack positions
+  $self{stackmax}   //= 256;
+
+  # Max value for epsilon loop traversal
+  $self{epsilonmax} //= 1;
+
+  # Direction
+  $self{way} = DOWN;
+
+  # Transducer
+  $self{fst} = {};
+
+  # Sigma table
+  $self{sigma} = {};
+
+  # Epsilon list
+  $self{epsilon} = [];
+
+  bless \%self, $class;
+};
+
+
+# Add edge to transducer
+sub edge {
+  my $self = shift;
+  my $fst = $self->{'fst'};
+
+  # Edge is translating
+  if (defined($_[LABEL2])) {
+
+    # New node
+    my $node = [ $_[START], $_[TARGET], $_[LABEL1], $_[LABEL2] ];
+
+    # Add label to sigma
+    $self->sigma($_[LABEL1], $_[LABEL2]);
+
+    # Add edge to transducer
+    push(@{$fst->{$_[START]}->[DOWN]->{$_[LABEL1]}}, $node);
+    push(@{$fst->{$_[START]}->[UP]->{$_[LABEL2]}}, $node);
+  }
+
+  # Edge is not translating
+  else {
+
+    # New node
+    my $node = [ $_[START], $_[TARGET], $_[LABEL1] ];
+
+    # Add label to sigma
+    $self->sigma($_[LABEL1]);
+
+    # Add edge to transducer
+    push(@{$fst->{$_[START]}->[NORMAL]->{$node->[LABEL1]}}, $node);
+  };
+
+  return 1;
+};
+
+
+# Add character to sigma
+sub sigma {
+  my $self = shift;
+  $self->{sigma}->{$_} = 1 foreach (@_);
+};
+
+
+# Make a node terminal
+sub end {
+  shift->edge( $_[0], '-', '#end#');
+};
+
+
+# An input sequence is translated in a given direction.
+# Returns an array ref to array refs of analyses.
+sub parse {
+  my $self       = shift;
+  $self->{way}   = shift;
+  $self->{input} = shift;
+
+  # Set default values
+  @{$self}{'output', 'stack', 'interpret', 'epsilon'} = ([], [], [], []);
+  @{$self}{'input_pointer', 'output_pointer'} = (0, 0);
+
+  # Start with node 0
+  $self->_test_node(0);
+
+  # copy interpretations
+  my @parsed_inters = ();
+  push(@parsed_inters, [ @$_ ]) foreach @{$self->{interpret}};
+
+  return \@parsed_inters;
+};
+
+
+# Delete epsilon list
+sub _del_epsilon {
+  shift->{epsilon} = [];
+};
+
+# Check if the current input string has ended and the current state is terminal.
+# Returns true on success and put the current interpretation on the output stack.
+# Returns false otherwise.
+sub _match_test{
+  my ($self, $node_number) = @_;
+
+  my $node = $self->{fst}->{$node_number};
+
+  # String is parsed and current state is terminal
+  if ($node->[NORMAL]->{'#end#'} &&
+      ($self->{input_pointer} == ( $#{$self->{input}} + 1))) {
+
+    my @interpretation =
+      @{$self->{output}}[0 .. ($self->{'output_pointer'} - 1)];
+
+    # Trace output
+    say "Match: ",join('', @interpretation ) if $self->{trace};
+
+    # Put correct interpretation on stack
+    push(@{$self->{interpret}}, [ @interpretation ]);
+    return 1;
+  };
+
+  # String is not parsed or state is not terminal
+  return;
+};
+
+# Traverse edge
+sub _traverse_edge {
+  my ($self, $act_try) = @_;
+
+  # All pointers are in a valid range
+  if ($self->{input_pointer}  <= $self->{pointermax} &&
+      $self->{output_pointer} <= $self->{pointermax}) {
+
+    ############################
+    # Edge traversal algorithm #
+    ############################
+
+    my ($label1, $label2) = @{$act_try}[LABEL1, LABEL2];
+
+    # If the edge is translating and the way is up,
+    # change the label order
+    if (defined($label2) && ($self->{way} == UP)) {
+      ($label1, $label2) = ($label2, $label1);
+    };
+
+    # Edge is not epsilon accepting
+    if ($label1 ne '@_EPSILON_SYMBOL_@') {
+
+      # The edge is not translating or the target label can be anything
+      if (!defined( $label2 ) || $label2 eq '@_UNKNOWN_SYMBOL_@') {
+
+	# Consume label and output identical
+	$self->{output}->[ $self->{output_pointer}++ ] =
+	  $self->{input}->[$self->{input_pointer}];
+
+      }
+
+      # The edge is translating and the target symbol is defined
+      elsif ($label2 ne '@_EPSILON_SYMBOL_@') {
+	# Consume label and output translation
+	$self->{output}->[ $self->{output_pointer}++ ] = $label2;
+      };
+
+      # Go forward
+      $self->{input_pointer}++;
+
+    }
+
+    # The edge is epsilon accepting
+    else {
+
+      my $epsilon = $self->{epsilon};
+
+      # epsilon edge was traversed 'epsilonmax' times with same input position
+      if (defined($epsilon->[ $self->{input_pointer}]) &&
+          $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] } &&
+          $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }
+            >= $self->{epsilonmax}) {
+
+	# Print trace
+	if ($self->{'trace'}) {
+	  say 'Epsilon loop: ',
+	      $self->{input_pointer},' : ',$act_try->[TARGET],' - X';
+	};
+
+	return;
+      }
+
+      # epsilon edge was traversed less than 'epsilonmax' times on the same
+      # input position
+      else {
+
+	$self->{epsilon}->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }++;
+
+	# Output is defined and can be written
+	if (defined($label2) && 
+	    $label2 ne '@_EPSILON_SYMBOL_@' && 
+	    ($label2 ne '@_UNKNOWN_SYMBOL_@')) {
+	  $self->{output}->[ $self->{output_pointer}++ ] = $label2;
+	};
+      };
+    };
+
+
+    # Print trace
+    if ($self->{trace}) {
+      my $traceOut = "$act_try->[START] -> $act_try->[TARGET] | $label1";
+      $traceOut .= " : $label2" if defined( $label2 );
+      $traceOut .= " - YES!" . (' ' x (30 - length( $traceOut )));
+      say $traceOut;
+      say 'Output: ',
+	join('', @{$self->{output}}[0 .. ($self->{output_pointer} - 1)]);
+    };
+
+  }
+
+  # Pointers are outside valid range
+  else {
+    die 'Pointers at maximum position. Maybe cyclic structure?';
+  };
+
+  return 1;
+};
+
+
+# Next branch from stack
+sub _look_back {
+  my $self = shift;
+
+  # A branch is left on the stack
+  if ($self->{stack}->[0]) {
+
+    # Return to position
+    my $act_try = shift( @{$self->{stack}} );
+    $self->{input_pointer} = shift( @$act_try );
+    $self->{output_pointer} = shift( @$act_try );
+
+    # The traversal was successful
+    # (Not successful on cyclic structures)
+    if ($self->_traverse_edge($act_try)) {
+
+      # Check node
+      $self->_test_node($act_try->[TARGET]);
+    }
+
+    # Traversal was not successful
+    else {
+
+      # A match was found
+      if ($self->_match_test($act_try->[START])) {
+
+	# Delete epsilon list
+	$self->_del_epsilon;
+      };
+
+      # Look for next saved branch
+      $self->_look_back;
+    };
+  };
+};
+
+# Check for possible traversals
+sub _test_node {
+  my ($self, $node_number) = @_;
+
+  # Possibilities
+  my @poss = ();
+
+  # Current symbol
+  my $sign = $self->{input}->[ $self->{input_pointer} ];
+
+  # Current node
+  my $node = $self->{'fst'}->{$node_number};
+
+  my $way = $self->{way};
+
+  # The node is defined
+  if (defined($node)) {
+
+    # Epsilon edge is saved as possible traversal
+    if ($node->[NORMAL]->{'@_EPSILON_SYMBOL_@'} &&
+	ref($node->[NORMAL]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
+      push(@poss, @{$node->[NORMAL]->{'@_EPSILON_SYMBOL_@'}});
+    };
+
+    # Epsilon edge (as acceptor) is saved as possible traversal
+    if ($node->[$way]->{'@_EPSILON_SYMBOL_@'} &&
+	ref($node->[$way]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
+      push(@poss, @{$node->[$way]->{'@_EPSILON_SYMBOL_@'}});
+    };
+
+    # Input symbol is defined
+    if ($sign) {
+
+      # Input symbol edge is saved as possible traversal
+      if ($node->[NORMAL] &&
+          $node->[NORMAL]->{$sign} &&
+          ref($node->[NORMAL]->{$sign}) eq 'ARRAY') {
+	push(@poss, @{$node->[NORMAL]->{$sign}});
+      };
+
+      # Input symbol edge (as acceptor) is saved as possible traversal
+      if ($node->[$way]->{$sign} &&
+	  ref($node->[$way]->{$sign}) eq 'ARRAY') {
+	push(@poss, @{$node->[$way]->{$sign}});
+      };
+
+      # Input symbol is unknown (i.e., no element of sigma)
+      if (!defined($self->{sigma}->{$sign}) &&
+	  defined($self->{input}->[$self->{input_pointer}])) {
+
+	# Unknown symbol edge is saved as possible traversal
+	if ($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'} &&
+	    ref($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
+	  push(@poss, @{$node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}});
+	};
+
+	# Unknown symbol edge (as acceptor) is saved as possible traversal
+	if ($node->[$way]->{'@_UNKNOWN_SYMBOL_@'} &&
+	    ref($node->[$way]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
+	  push(@poss, @{$node->[$way]->{'@_UNKNOWN_SYMBOL_@'}});
+	};
+      };
+    };
+  };
+
+
+  # Possible traversals exist
+  if ($poss[0]) {
+    my $act_try = shift( @poss );
+
+    # As long as the maximum stack size is not reached, all possibilities
+    # are put on the stack
+    foreach (@poss) {
+      if ($#{$self->{stack}} <= $self->{stackmax}) {
+	unshift(@{$self->{stack}},
+		[ $self->{input_pointer}, $self->{output_pointer}, @$_ ]);
+      }
+
+      # Maximum positions on stack are full
+      else {
+	warn('Stack is full');
+	last;
+      };
+    };
+
+    if ($self->{trace} &&
+	defined($self->{stack}->[0])) {
+      say 'Stack: ', map( '<'.join(',',@$_).'>  ', @{$self->{stack}});
+    };
+
+    # String is correct
+    if ($self->_match_test($act_try->[START])) {
+
+      # Delete epsilon list
+      $self->_del_epsilon;
+    };
+
+    # Traverse edge
+    if ($self->_traverse_edge($act_try)) {
+
+      # Check target node
+      $self->_test_node($act_try->[TARGET]);
+    }
+
+    # Edge cannot be traversed
+    else {
+
+      # Check next branch on stack
+      $self->_look_back;
+    };
+
+  }
+
+  # No possible traversal from current state
+  else {
+
+    # String is correct
+    if ($self->_match_test($node_number)) {
+
+      # Delete epsilon list
+      $self->_del_epsilon;
+    };
+
+    # Check next branch on stack
+    $self->_look_back;
+  };
+};
+
+__END__
+
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+fomatest - A tool for testing foma lexica
+
+=head1 SYNOPSIS
+
+  # Command line
+  $ perl fomatest lexicon.fst lexicon.test
+
+  # lexicon.test
+  schafe;    # This is part of the lexicon
+  *schäfe;   # This is not part of the lexicon
+
+  >> Test "bäume"
+
+  bäume ->   'baum+Noun+Mas+Pl+Nom',
+             "baum+Noun+Mas+Pl+Acc";
+
+=head1 DESCRIPTION
+
+This script allows for writing test suites to check against
+lexica compiled with foma.
+
+
+=head1 NOTATION
+
+=head2 Word
+
+Words to request as well as words as part of word sets can
+be written with or without quotes.
+Thus, the first three forms are equal.
+
+  schafe;
+  'schafe';
+  "schafe";
+  bäume -> 'baum+Noun+Mas+Pl+Nom', "baum+Noun+Mas+Pl+Acc";
+
+
+=head2 Word set
+
+Word sets are list of words separated by comma.
+They can be written in one line or in multiple lines.
+
+  bäume -> 'baum+Noun+Mas+Pl+Nom', "baum+Noun+Mas+Pl+Acc";
+
+  bäume -> 'baum+Noun+Mas+Pl+Nom',
+           "baum+Noun+Mas+Pl+Acc";
+
+
+=head2 RegExp
+
+Regular Expressions as part of Regular Expression lists can be
+full PCREs.
+
+  bäume ~> '^baum\+Noun.+?';
+
+
+=head2 RegExp list
+
+Regular Expression lists are lists of Regular Expressions
+separated by comma.
+They can be written in one line or in multiple lines.
+
+  bäume ~> '^baum\+Noun.+?',
+           '^baum\+Noun\+Mas';
+
+
+=head2 Direction
+
+Most of all functions allow for the explicit direction of lexicon requests.
+The default direction is lower to upper and indicated by a 'greater than' symbol.
+The opposite is indicated by a 'littler than' symbol.
+
+  > 'baum';
+  < 'baum+Noun+Mas+Pl+Nom';
+  baum -> 'baum+Noun+Mas+Pl+Nom';
+  'baum+Noun+Mas+Pl+Nom' -< 'baum';
+
+
+=head2 Negation
+
+Most of all functions allow for the negation of the expression, indicated
+by a preceding 'star' symbol.
+
+  > 'baum';  # Is in lexicon
+  *> 'bäum'; # Is not in lexicon
+  bäume ->  'baum+Noun+Mas+Pl+Nom',
+            "baum+Noun+Mas+Pl+Acc"; # Is a subset of the result set
+  bäume *-> 'bäume'; # Has an empty intersection with the result set
+
+
+=head2 Comments
+
+Most of all functions allow for comments at the end of a line.
+
+  > 'baum';  # Simple comments
+  # Exclusive comment line
+  bäume ->  'baum+Noun+Mas+Pl+Nom', # Comments in multi lines
+            "baum+Noun+Mas+Pl+Acc"; # are allowed as well
+
+In addition to that, empty lines can be used to structure the test suite.
+
+Comments to be displayed by the test suite for diagnosis
+have to be in separated lines beginning with '>>'.
+
+  >> Let's start the test suite.
+
+
+=head1 FUNCTIONS
+
+=head2 > WORD
+
+Check, if the word is an element of the lexicon.
+The direction is optional.
+If not given, the default direction is used.
+These expressions are equivalent:
+
+  baum;
+  > baum;
+
+
+=head2 *> WORD
+
+Check, if the word is not an element of the lexicon.
+The direction is optional.
+If not given, the default direction is used.
+These expressions are equivalent:
+
+  *baum;
+  *> baum;
+
+
+=head2 WORD -> WORD SET
+
+Check, if the word set is a subset of the result set.
+
+  bäume -> baum+Noun+Mas+Pl+Nom,
+           baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD *-> WORD SET
+
+Check, if the intersection of the word set and the result set
+is the empty set.
+
+  bäume *-> bäum+Noun+Mas+Pl+Nom,
+            bäum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD => WORD SET
+
+Check, if the word set and the result set are identical, i.e.,
+if the difference of both is the empty set.
+
+  bäume => 'baum+Noun+Mas+Pl+Nom',
+           "baum+Noun+Mas+Pl+Gen",
+           baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD *=> WORD SET
+
+Check, if the word set and the result set are not identical, i.e.,
+if the difference of both is not the empty set.
+
+  bäume *=> 'baum+Noun+Mas+Pl+Nom',
+            baum+Noun+Mas+Pl+Acc;
+
+
+=head2 WORD ~> REGEXP LIST
+
+Check, if all elements of the result set match given regular expressions,
+i.e., if the result set is a subset of the word sets represented by a list
+of regular expressions.
+
+  bäume ~> 'baum\+Noun.+?',
+           'baum\+Noun\+Mas';
+
+B<Note>: The result set must be a subset of each word set, not the union of
+all word sets represented by the list of regular expressions.
+
+
+=head2 WORD *~> REGEXP LIST
+
+Check, if all elements of the result set do not match given regular expressions,
+i.e., if the intersection of the result set and the word sets
+represented by a list of regular expressions is the empty set.
+
+  bäume *~> '^baum\+Verb.+?',
+            'baum\+Noun\+Fem';
+
+B<Note>: The intersection of the result set and word set of each re has to be empty,
+not the union of all word sets represented by the list of regular expressions.
+
+
+=head1 DEPENDENCIES
+
+Perl (at least version 5.10.1).
+
+
+=head1 KNOWN BUGS
+
+There is currently no reference weakening anywhere,
+although we work heavily with cyclic references.
+This can lead to various errors and memory loss.
+
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2011, Nils Diewald.
+
+This program is intended to become free software.
+For the moment it is not prepared for distribution.
+
+=cut

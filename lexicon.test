@@ -1,0 +1,138 @@
+>> Check for nouns
+
+# Direction is optional for simple tests
+> schaf;
+"schafe";
+'schafen';
+
+# You can negate the search
+*schäfe;    # is not element
+
+# Change the direction
+<  baum+Noun+Mas+Pl+Nom;
+*< baum+Noun+Fem+Pl+Nom;
+
+# All strings should be treated as utf-8
+baum;
+bäume;
+
+# Check for identity with result sets
+bäume =>  'baum+Noun+Mas+Pl+Nom',
+          "baum+Noun+Mas+Pl+Gen", # Comments in multiple lines
+          baum+Noun+Mas+Pl+Acc;
+
+# Negate the identity relation
+bäume
+  *=>                       # Multiline tests
+    'baum+Noun+Mas+Pl+Nom',
+    baum+Noun+Mas+Pl+Acc;   # Check
+
+# Check for subsets
+bäume ->   baum+Noun+Mas+Pl+Nom,baum+Noun+Mas+Pl+Acc;
+
+# Negate subset check
+bäume *->  bäum+Noun+Mas+Pl+Nom,bäum+Noun+Mas+Pl+Acc;
+
+# Check with regular expressions
+bäume ~>   '^baum\+Noun.+?', '^baum\+Noun\+Mas';
+
+# Negate regular expression check
+bäume *~>  '^baum\+Verb.+?', '^baum\+Noun\+Fem';
+
+# Change direction of these tests
+baum+Noun+Mas+Pl+Nom ~< '^bäum';
+
+# These words are part of the test lexicon:
+baum;
+wald;
+frucht;
+wildnis;
+wirrnis;
+hund;
+bär;
+nomade;
+ostwestfale;
+proband;
+multiplikand;
+demonstrant;
+monarch;
+pirat;
+agent;
+artist;
+katholik;
+klingone;
+mentor;
+astrologe;
+ökonom;
+philosoph;
+apache;
+stirn;
+uhr;
+muskel;
+gesundheit;
+auge;
+herz;
+
+# Some flexions:
+bäume;
+bäumen;
+wälder;
+*walder;
+früchte;
+*fruchten;
+wildnisse;
+hunde;
+*hünde;
+bären;
+*bäre;
+nomaden;
+ostwestfalen;
+probanden;
+*probande;
+multiplikanden;
+*multiplikande;
+demonstranten;
+*demonstrante;
+monarchen;
+*monarche;
+piraten;
+*pirate;
+agenten;
+*agente;
+artisten;
+*artiste;
+katholiken;
+*katholike;
+klingonen;
+mentoren;
+*mentore;
+astrologen;
+ökonomen;
+*ökonome;
+philosophen;
+*philosophe;
+apachen;
+stirnen;
+*stirne;
+uhren;
+*uhre;
+muskeln;
+*muskelen;
+gesundheiten;
+*gesundheite;
+augen;
+herzen;
+*herze;
+
+>> Check for numbers
+
+fünf        => 5+Num;
+fünfzig     => 50+Num;
+fünfhundert => 500+Num;
+fünftausend => 5000+Num;
+million     => 1000000+Num;
+neunzehntausendachtundvierzig => 19048+Num;
+fünfhundertachtundsechzigtausendzweihundertdreizehn => 568213+Num;
+
+# Check for number with regular expressions
+fünfhundertachtundsechzigtausendzweihundertdreizehn ~> '^5\d{5}\+Num$';

@@ -1,0 +1,8 @@
+2011-11-10 0.3
+  - Made _split_token more greedy
+
+2011-11-03 0.2
+  - Notification on multiple stacks
+
+2011-10-24 0.1
+  - Initial release
