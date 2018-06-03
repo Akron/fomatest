@@ -59,9 +59,9 @@ if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
     if (index($line,'>>') == 0) {
       my $print = substr($line,2);
       for ($print) {
-	s/^\s*//;
-	s/\s*$//;
-	$_ = unquote($_);
+        s/^\s*//;
+        s/\s*$//;
+        $_ = unquote($_);
       };
       say "$print ($all tests done)";
       next;
@@ -77,23 +77,23 @@ if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
 
       # Is final line
       if (exists $+{end}) {
-	last;
+        last;
       }
 
       # Continues
       elsif (!eof(LIST)) {
 
-	# Read line
-	$act_line = readline(LIST);
-	chomp($act_line);
-	$line_nr++;
+        # Read line
+        $act_line = readline(LIST);
+        chomp($act_line);
+        $line_nr++;
       }
 
       # Reached end of file
       else {
-	warn "Error ($line_nr): line '$act_line' unparseable";
-	$failed++;
-	last;
+        warn "Error ($line_nr): line '$act_line' unparseable";
+        $failed++;
+        last;
       };
     };
 
@@ -114,28 +114,28 @@ if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
       my $word = unquote($+{word});
 
       unless ($word) {
-	warn "Error ($line_nr): line '$line' unparseable";
-	$failed++;
-	next;
+        warn "Error ($line_nr): line '$line' unparseable";
+        $failed++;
+        next;
       };
 
       # Check transducer for word
       my $foma_output = $dir ?
-	                $flookup->apply_down($word) :
-			$flookup->apply_up($word);
+        $flookup->apply_down($word) :
+        $flookup->apply_up($word);
 
       if (($neg  && (@$foma_output == 1 && $foma_output->[0] eq '+?')) ||
-          (!$neg && (@$foma_output >= 1  && $foma_output->[0] ne '+?'))
-	) {
-	# Test passed
-	$passed++;
-	next;
+            (!$neg && (@$foma_output >= 1  && $foma_output->[0] ne '+?'))
+          ) {
+        # Test passed
+        $passed++;
+        next;
       };
 
       # Test failed
       warn "Error ($line_nr): '$word'",
-	   ($neg ? '' : ' not'),
-	   ' found in lexicon';
+        ($neg ? '' : ' not'),
+        ' found in lexicon';
       $failed++;
     }
 
@@ -149,9 +149,9 @@ if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
     # 'baum' =< "baum+Noun+SN1+Mases+Sg+Gen", baum+Noun+SN1+Mas+Sg+Nom, ...
     # 'baum' *< "baum+Noun+SN2+Mases+Sg+Gen"
     elsif ($line =~ /^$WORD_RE\s*
-		     $MOD_RE
+                     $MOD_RE
                      $DIR_RE\s*
-		     (?<wordlist>.+?)\s*$/ox) {
+                     (?<wordlist>.+?)\s*$/ox) {
       my $mod       = $+{mod};
       my $dir       = $+{dir} eq '>' ? 0 : 1;
       my $word_list = $+{wordlist};
@@ -160,78 +160,78 @@ if ($ARGV[1] && open(LIST, '<', $ARGV[1])) {
       my @word_list;
       pos($word_list) = 0;
       while ($word_list =~ /\G\s*$WORD_RE\s*(?:,|$)/og) {
-	push(@word_list, unquote($+{word})) if $+{word};
+        push(@word_list, unquote($+{word})) if $+{word};
       };
 
       # Check transducer for word
       my $foma_output = $dir ?
-	                $flookup->apply_down($word) :
-			$flookup->apply_up($word);
+        $flookup->apply_down($word) :
+        $flookup->apply_up($word);
 
       # Is the test set a subset of the result set?
       #   or
       # Is the intersection of the test set and the result set empty?
-      if ($mod ~~ ['-','*-']) {
-	my $neg = $mod eq '*-' ? 1 : 0;
-	my $not_found = 0;
-	foreach (@word_list) {
-	  if (($neg && $_ ~~ $foma_output) ||
- 	      (!$neg  && !($_ ~~ $foma_output))) {
-	    warn "Error ($line_nr): ",
-	         "$_ is",
-		 ($neg ? '' : ' not'),
-		 " part of the result set of '$word'";
-	    $not_found++;
-	    $failed++;
-	    last;
-	  };
-	};
+      if ($mod eq '-' || $mod eq '*-') {
+        my $neg = $mod eq '*-' ? 1 : 0;
+        my $not_found = 0;
+        foreach (@word_list) {
+          if (($neg && $_ ~~ $foma_output) ||
+                (!$neg  && !($_ ~~ $foma_output))) {
+            warn "Error ($line_nr): ",
+              "$_ is",
+              ($neg ? '' : ' not'),
+              " part of the result set of '$word'";
+            $not_found++;
+            $failed++;
+            last;
+          };
+        };
       }
 
       # Is the test set identical to the result set?
-      elsif ($mod ~~ ['=', '*=']) {
-	my $neg = $mod eq '*=' ? 1 : 0;
+      elsif ($mod eq '=' || $mod eq '*=') {
+        my $neg = $mod eq '*=' ? 1 : 0;
 
-	my $word_list = [sort { $a cmp $b } @word_list ];
-	if ((!$neg && !($word_list ~~ $foma_output)) ||
-	    ($neg && $word_list ~~ $foma_output)) {
-	  warn "Error ($line_nr): ",
-	       "test set is",
-               ($neg ? '' : ' not'),
-               " identical to result set of '$word'";
-	  warn "     Have: ",join(',',@$word_list);
-	  warn " Expected: ",join(',',@$foma_output);
-	  $failed++;
-	  next;
-	};
+        my $word_list = [sort { $a cmp $b } @word_list ];
+        if ((!$neg && !($word_list ~~ $foma_output)) ||
+              ($neg && $word_list ~~ $foma_output)) {
+          warn "Error ($line_nr): ",
+            "test set is",
+            ($neg ? '' : ' not'),
+            " identical to result set of '$word'";
+          warn "     Have: ",join(',',@$word_list);
+          warn " Expected: ",join(',',@$foma_output);
+          $failed++;
+          next;
+        };
       }
 
       # Is the result set a subset of the test set represented as an re?
       #   or
       # Is the intersection of the result set and the test set
       # represented as an re the empty set?
-      elsif ($mod ~~ ['~','*~']) {
-	my $not_found = 0;
-	my $neg = $mod eq '*~' ? 1 : 0;
+      elsif ($mod eq '~' || $mod eq '*~') {
+        my $not_found = 0;
+        my $neg = $mod eq '*~' ? 1 : 0;
 
-	foreach my $output (@$foma_output) {
-	  foreach (@word_list) {
-	    my $word_list_re = qr/$_/;
+        foreach my $output (@$foma_output) {
+          foreach (@word_list) {
+            my $word_list_re = qr/$_/;
 
-	    if ((!$neg && $output !~ $word_list_re) ||
-		($neg  && $output =~ $word_list_re)) {
-	      warn "Error ($line_nr): ",
-		   "$_ does",
-		   ($neg ? '' : ' not'),
-                   " match for '$word'";
-	           $not_found++;
-	           $failed++;
-	      last;
-	    };
-	  };
-	  last if $not_found;
-	};
-	last if $not_found;
+            if ((!$neg && $output !~ $word_list_re) ||
+                  ($neg  && $output =~ $word_list_re)) {
+              warn "Error ($line_nr): ",
+                "$_ does",
+                ($neg ? '' : ' not'),
+                " match for '$word'";
+              $not_found++;
+              $failed++;
+              last;
+            };
+          };
+          last if $not_found;
+        };
+        last if $not_found;
       };
 
       # Test passed
@@ -320,8 +320,8 @@ sub new {
     my ($num, $label) = split(/\s/,$line);
 
     # Change special symbols
-#    $label =  0  if $label eq '@_EPSILON_SYMBOL_@';
-#    $label = '?' if $label eq '@_UNKNOWN_SYMBOL_@';
+    # $label =  0  if $label eq '@_EPSILON_SYMBOL_@';
+    # $label = '?' if $label eq '@_UNKNOWN_SYMBOL_@';
 
     # Add sigma to map
     $sigma[$num] = $label;
@@ -366,9 +366,9 @@ sub new {
     # Add edges to fst
     if ($l1 >= 0) {
       if ($l2 >= 0) {
-	$fst->edge($s1 => $s2, $sigma[$l1] => $sigma[$l2]);
+        $fst->edge($s1 => $s2, $sigma[$l1] => $sigma[$l2]);
       } else {
-	$fst->edge($s1 => $s2, $sigma[$l1]);
+        $fst->edge($s1 => $s2, $sigma[$l1]);
       };
     };
 
@@ -441,8 +441,8 @@ sub _split_token {
   # Create token regex
   my $TOKEN =
     join('|', map(quotemeta($_),
-		  sort { length($b) <=> length($a) }
-		    keys %{$self->{mcs}}));
+                  sort { length($b) <=> length($a) }
+                    keys %{$self->{mcs}}));
 
   # parse token as long as there are characters
   while (1) {
@@ -592,8 +592,10 @@ sub _del_epsilon {
   shift->{epsilon} = [];
 };
 
-# Check if the current input string has ended and the current state is terminal.
-# Returns true on success and put the current interpretation on the output stack.
+# Check if the current input string has ended
+# and the current state is terminal.
+# Returns true on success and put the current
+# interpretation on the output stack.
 # Returns false otherwise.
 sub _match_test{
   my ($self, $node_number) = @_;
@@ -602,7 +604,7 @@ sub _match_test{
 
   # String is parsed and current state is terminal
   if ($node->[NORMAL]->{'#end#'} &&
-      ($self->{input_pointer} == ( $#{$self->{input}} + 1))) {
+        ($self->{input_pointer} == ( $#{$self->{input}} + 1))) {
 
     my @interpretation =
       @{$self->{output}}[0 .. ($self->{'output_pointer'} - 1)];
@@ -619,13 +621,14 @@ sub _match_test{
   return;
 };
 
+
 # Traverse edge
 sub _traverse_edge {
   my ($self, $act_try) = @_;
 
   # All pointers are in a valid range
   if ($self->{input_pointer}  <= $self->{pointermax} &&
-      $self->{output_pointer} <= $self->{pointermax}) {
+        $self->{output_pointer} <= $self->{pointermax}) {
 
     ############################
     # Edge traversal algorithm #
@@ -645,21 +648,19 @@ sub _traverse_edge {
       # The edge is not translating or the target label can be anything
       if (!defined( $label2 ) || $label2 eq '@_UNKNOWN_SYMBOL_@') {
 
-	# Consume label and output identical
-	$self->{output}->[ $self->{output_pointer}++ ] =
-	  $self->{input}->[$self->{input_pointer}];
-
+        # Consume label and output identical
+        $self->{output}->[ $self->{output_pointer}++ ] =
+          $self->{input}->[$self->{input_pointer}];
       }
 
       # The edge is translating and the target symbol is defined
       elsif ($label2 ne '@_EPSILON_SYMBOL_@') {
-	# Consume label and output translation
-	$self->{output}->[ $self->{output_pointer}++ ] = $label2;
+        # Consume label and output translation
+        $self->{output}->[ $self->{output_pointer}++ ] = $label2;
       };
 
       # Go forward
       $self->{input_pointer}++;
-
     }
 
     # The edge is epsilon accepting
@@ -669,31 +670,31 @@ sub _traverse_edge {
 
       # epsilon edge was traversed 'epsilonmax' times with same input position
       if (defined($epsilon->[ $self->{input_pointer}]) &&
-          $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] } &&
-          $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }
+            $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] } &&
+            $epsilon->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }
             >= $self->{epsilonmax}) {
 
-	# Print trace
-	if ($self->{'trace'}) {
-	  say 'Epsilon loop: ',
-	      $self->{input_pointer},' : ',$act_try->[TARGET],' - X';
-	};
+        # Print trace
+        if ($self->{'trace'}) {
+          say 'Epsilon loop: ',
+            $self->{input_pointer},' : ',$act_try->[TARGET],' - X';
+        };
 
-	return;
+        return;
       }
 
       # epsilon edge was traversed less than 'epsilonmax' times on the same
       # input position
       else {
 
-	$self->{epsilon}->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }++;
+        $self->{epsilon}->[ $self->{input_pointer} ]->{ $act_try->[TARGET] }++;
 
-	# Output is defined and can be written
-	if (defined($label2) && 
-	    $label2 ne '@_EPSILON_SYMBOL_@' && 
-	    ($label2 ne '@_UNKNOWN_SYMBOL_@')) {
-	  $self->{output}->[ $self->{output_pointer}++ ] = $label2;
-	};
+        # Output is defined and can be written
+        if (defined($label2) && 
+              $label2 ne '@_EPSILON_SYMBOL_@' && 
+              ($label2 ne '@_UNKNOWN_SYMBOL_@')) {
+          $self->{output}->[ $self->{output_pointer}++ ] = $label2;
+        };
       };
     };
 
@@ -705,9 +706,8 @@ sub _traverse_edge {
       $traceOut .= " - YES!" . (' ' x (30 - length( $traceOut )));
       say $traceOut;
       say 'Output: ',
-	join('', @{$self->{output}}[0 .. ($self->{output_pointer} - 1)]);
+        join('', @{$self->{output}}[0 .. ($self->{output_pointer} - 1)]);
     };
-
   }
 
   # Pointers are outside valid range
@@ -745,8 +745,8 @@ sub _look_back {
       # A match was found
       if ($self->_match_test($act_try->[START])) {
 
-	# Delete epsilon list
-	$self->_del_epsilon;
+        # Delete epsilon list
+        $self->_del_epsilon;
       };
 
       # Look for next saved branch
@@ -754,6 +754,7 @@ sub _look_back {
     };
   };
 };
+
 
 # Check for possible traversals
 sub _test_node {
@@ -775,13 +776,13 @@ sub _test_node {
 
     # Epsilon edge is saved as possible traversal
     if ($node->[NORMAL]->{'@_EPSILON_SYMBOL_@'} &&
-	ref($node->[NORMAL]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
+          ref($node->[NORMAL]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
       push(@poss, @{$node->[NORMAL]->{'@_EPSILON_SYMBOL_@'}});
     };
 
     # Epsilon edge (as acceptor) is saved as possible traversal
     if ($node->[$way]->{'@_EPSILON_SYMBOL_@'} &&
-	ref($node->[$way]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
+          ref($node->[$way]->{'@_EPSILON_SYMBOL_@'}) eq 'ARRAY') {
       push(@poss, @{$node->[$way]->{'@_EPSILON_SYMBOL_@'}});
     };
 
@@ -790,32 +791,32 @@ sub _test_node {
 
       # Input symbol edge is saved as possible traversal
       if ($node->[NORMAL] &&
-          $node->[NORMAL]->{$sign} &&
-          ref($node->[NORMAL]->{$sign}) eq 'ARRAY') {
-	push(@poss, @{$node->[NORMAL]->{$sign}});
+            $node->[NORMAL]->{$sign} &&
+            ref($node->[NORMAL]->{$sign}) eq 'ARRAY') {
+        push(@poss, @{$node->[NORMAL]->{$sign}});
       };
 
       # Input symbol edge (as acceptor) is saved as possible traversal
       if ($node->[$way]->{$sign} &&
-	  ref($node->[$way]->{$sign}) eq 'ARRAY') {
-	push(@poss, @{$node->[$way]->{$sign}});
+            ref($node->[$way]->{$sign}) eq 'ARRAY') {
+        push(@poss, @{$node->[$way]->{$sign}});
       };
 
       # Input symbol is unknown (i.e., no element of sigma)
       if (!defined($self->{sigma}->{$sign}) &&
-	  defined($self->{input}->[$self->{input_pointer}])) {
+            defined($self->{input}->[$self->{input_pointer}])) {
 
-	# Unknown symbol edge is saved as possible traversal
-	if ($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'} &&
-	    ref($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
-	  push(@poss, @{$node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}});
-	};
+        # Unknown symbol edge is saved as possible traversal
+        if ($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'} &&
+              ref($node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
+          push(@poss, @{$node->[NORMAL]->{'@_UNKNOWN_SYMBOL_@'}});
+        };
 
-	# Unknown symbol edge (as acceptor) is saved as possible traversal
-	if ($node->[$way]->{'@_UNKNOWN_SYMBOL_@'} &&
-	    ref($node->[$way]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
-	  push(@poss, @{$node->[$way]->{'@_UNKNOWN_SYMBOL_@'}});
-	};
+        # Unknown symbol edge (as acceptor) is saved as possible traversal
+        if ($node->[$way]->{'@_UNKNOWN_SYMBOL_@'} &&
+              ref($node->[$way]->{'@_UNKNOWN_SYMBOL_@'}) eq 'ARRAY') {
+          push(@poss, @{$node->[$way]->{'@_UNKNOWN_SYMBOL_@'}});
+        };
       };
     };
   };
@@ -829,19 +830,19 @@ sub _test_node {
     # are put on the stack
     foreach (@poss) {
       if ($#{$self->{stack}} <= $self->{stackmax}) {
-	unshift(@{$self->{stack}},
-		[ $self->{input_pointer}, $self->{output_pointer}, @$_ ]);
+        unshift(@{$self->{stack}},
+                [ $self->{input_pointer}, $self->{output_pointer}, @$_ ]);
       }
 
       # Maximum positions on stack are full
       else {
-	warn('Stack is full');
-	last;
+        warn('Stack is full');
+        last;
       };
     };
 
     if ($self->{trace} &&
-	defined($self->{stack}->[0])) {
+          defined($self->{stack}->[0])) {
       say 'Stack: ', map( '<'.join(',',@$_).'>  ', @{$self->{stack}});
     };
 
@@ -865,7 +866,6 @@ sub _test_node {
       # Check next branch on stack
       $self->_look_back;
     };
-
   }
 
   # No possible traversal from current state
@@ -882,6 +882,7 @@ sub _test_node {
     $self->_look_back;
   };
 };
+
 
 __END__
 
